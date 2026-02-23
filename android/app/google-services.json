@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "848068157713",
+    "project_id": "bahar-e-aqeedat",
+    "storage_bucket": "bahar-e-aqeedat.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:848068157713:android:d2a20045ea7d592373ecb0",
+        "android_client_info": {
+          "package_name": "com.example.bahar_e_aqeedat"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "848068157713-qgn5pa9266ksurgka81sjk702c7ve7f2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDyCBt1zppafaLjIhpeYKNL3l2WsNY9GjU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "848068157713-qgn5pa9266ksurgka81sjk702c7ve7f2.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "848068157713-06bq0b7ek8qgt64ssm52cs9l59b1ev03.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "ton.mmujtabaroohani.BahareAqeedatUtility"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
