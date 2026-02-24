@@ -44,8 +44,10 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
       context: context,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Confirm Scores',
-            style: TextStyle(fontWeight: FontWeight.w700)),
+        title: const Text(
+          'Confirm Scores',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -53,38 +55,46 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
             Text(
               'You are about to submit scores for ${widget.candidate.name}. '
               'This action cannot be undone.',
-              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+              style: const TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 13,
+              ),
             ),
             const SizedBox(height: 16),
-            ...kScoreCategories.map((cat) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(cat.label,
-                          style: const TextStyle(fontSize: 13)),
-                      Text(
-                        '${_scores[cat.key]!.toStringAsFixed(0)} / ${cat.maxMarks}',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                            color: AppTheme.primary),
+            ...kScoreCategories.map(
+              (cat) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(cat.label, style: const TextStyle(fontSize: 13)),
+                    Text(
+                      '${_scores[cat.key]!.toStringAsFixed(0)} / ${cat.maxMarks}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: AppTheme.primary,
                       ),
-                    ],
-                  ),
-                )),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             const Divider(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Total',
-                    style: TextStyle(fontWeight: FontWeight.w700)),
+                const Text(
+                  'Total',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
                 Text(
                   '${_total.toStringAsFixed(0)} / 100',
                   style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.secondary,
-                      fontSize: 16),
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.secondary,
+                    fontSize: 16,
+                  ),
                 ),
               ],
             ),
@@ -93,8 +103,10 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Go Back',
-                style: TextStyle(color: AppTheme.textSecondary)),
+            child: const Text(
+              'Go Back',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
@@ -111,9 +123,26 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
+      final alreadySubmitted = await FirebaseService.instance.scoreExists(
+        widget.judge.id,
+        widget.candidate.id,
+        widget.session.id,
+      );
+      if (alreadySubmitted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Scores already submitted.')),
+          );
+          Navigator.pop(context);
+        }
+        return;
+      }
       final score = Score(
         id: Score.buildId(
-            widget.judge.id, widget.candidate.id, widget.session.id),
+          widget.judge.id,
+          widget.candidate.id,
+          widget.session.id,
+        ),
         judgeId: widget.judge.id,
         candidateId: widget.candidate.id,
         sessionId: widget.session.id,
@@ -134,8 +163,9 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Failed to submit: $e'),
-              backgroundColor: AppTheme.error),
+            content: Text('Failed to submit: $e'),
+            backgroundColor: AppTheme.error,
+          ),
         );
       }
     } finally {
@@ -146,10 +176,7 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: GradientAppBar(
-        title: 'Score Candidate',
-        showBack: true,
-      ),
+      appBar: GradientAppBar(title: 'Score Candidate', showBack: true),
       body: LoadingOverlay(
         isLoading: _saving,
         child: SingleChildScrollView(
@@ -161,8 +188,9 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
               const SizedBox(height: 16),
               if (widget.session.stage > 1) ...[
                 _PreviousStageSummary(
-                    candidateId: widget.candidate.id,
-                    currentStage: widget.session.stage),
+                  candidateId: widget.candidate.id,
+                  currentStage: widget.session.stage,
+                ),
                 const SizedBox(height: 16),
               ],
               _buildScoreSliders(),
@@ -195,28 +223,39 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
       child: Row(
         children: [
           AvatarWidget(
-              imageUrl: widget.candidate.imageUrl,
-              name: widget.candidate.name,
-              radius: 32),
+            imageUrl: widget.candidate.imageUrl,
+            name: widget.candidate.name,
+            radius: 32,
+          ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(widget.candidate.name,
-                    style: Theme.of(context).textTheme.headlineSmall),
+                Text(
+                  widget.candidate.name,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
                 const SizedBox(height: 2),
-                Text('S/O ${widget.candidate.fatherName}',
-                    style: const TextStyle(
-                        color: AppTheme.textSecondary, fontSize: 13)),
+                Text(
+                  'S/O ${widget.candidate.fatherName}',
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Row(
                   children: [
                     seniorJuniorBadge(widget.candidate.isSenior),
                     const SizedBox(width: 6),
-                    Text(widget.candidate.exactAge,
-                        style: const TextStyle(
-                            fontSize: 11, color: AppTheme.textMuted)),
+                    Text(
+                      widget.candidate.exactAge,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.textMuted,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -234,11 +273,13 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
         children: [
           const SectionHeader(title: 'ASSIGN SCORES'),
           const SizedBox(height: 16),
-          ...kScoreCategories.map((cat) => _ScoreSlider(
-                category: cat,
-                value: _scores[cat.key]!,
-                onChanged: (v) => setState(() => _scores[cat.key] = v),
-              )),
+          ...kScoreCategories.map(
+            (cat) => _ScoreSlider(
+              category: cat,
+              value: _scores[cat.key]!,
+              onChanged: (v) => setState(() => _scores[cat.key] = v),
+            ),
+          ),
         ],
       ),
     );
@@ -249,9 +290,12 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
     Color totalColor;
     if (pct >= 0.8) {
       totalColor = AppTheme.success;
-    } else if (pct >= 0.6) totalColor = AppTheme.secondary;
-    else if (pct >= 0.4) totalColor = AppTheme.warning;
-    else totalColor = AppTheme.error;
+    } else if (pct >= 0.6)
+      totalColor = AppTheme.secondary;
+    else if (pct >= 0.4)
+      totalColor = AppTheme.warning;
+    else
+      totalColor = AppTheme.error;
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -266,21 +310,27 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
           const Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Total Score',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
-                      color: AppTheme.textPrimary)),
-              Text('Sum of all categories',
-                  style: TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+              Text(
+                'Total Score',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+              Text(
+                'Sum of all categories',
+                style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+              ),
             ],
           ),
           Text(
             '${_total.toStringAsFixed(0)} / 100',
             style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                color: totalColor),
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              color: totalColor,
+            ),
           ),
         ],
       ),
@@ -326,9 +376,12 @@ class _ScoreSlider extends StatelessWidget {
     Color color;
     if (pct >= 0.8) {
       color = AppTheme.success;
-    } else if (pct >= 0.6) color = AppTheme.secondary;
-    else if (pct >= 0.4) color = AppTheme.warning;
-    else color = AppTheme.primary;
+    } else if (pct >= 0.6)
+      color = AppTheme.secondary;
+    else if (pct >= 0.4)
+      color = AppTheme.warning;
+    else
+      color = AppTheme.primary;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -338,11 +391,18 @@ class _ScoreSlider extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(category.label,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 14)),
+              Text(
+                category.label,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
@@ -351,9 +411,10 @@ class _ScoreSlider extends StatelessWidget {
                 child: Text(
                   '${value.toStringAsFixed(0)} / ${category.maxMarks}',
                   style: TextStyle(
-                      color: color,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13),
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
                 ),
               ),
             ],
@@ -387,14 +448,18 @@ class _PreviousStageSummary extends StatelessWidget {
   final String candidateId;
   final int currentStage;
 
-  const _PreviousStageSummary(
-      {required this.candidateId, required this.currentStage});
+  const _PreviousStageSummary({
+    required this.candidateId,
+    required this.currentStage,
+  });
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Score>>(
-      future: FirebaseService.instance
-          .getPreviousStageScores(candidateId, currentStage),
+      future: FirebaseService.instance.getPreviousStageScores(
+        candidateId,
+        currentStage,
+      ),
       builder: (_, snap) {
         final scores = snap.data ?? [];
         if (scores.isEmpty) return const SizedBox.shrink();
@@ -414,7 +479,8 @@ class _PreviousStageSummary extends StatelessWidget {
               const SizedBox(height: 12),
               ...byStage.entries.map((e) {
                 final stageScores = e.value;
-                final avg = stageScores.fold<double>(0, (a, s) => a + s.total) /
+                final avg =
+                    stageScores.fold<double>(0, (a, s) => a + s.total) /
                     stageScores.length;
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -425,15 +491,18 @@ class _PreviousStageSummary extends StatelessWidget {
                       Text(
                         'Avg: ${avg.toStringAsFixed(1)}/100',
                         style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                            color: AppTheme.secondary),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: AppTheme.secondary,
+                        ),
                       ),
                       const SizedBox(width: 4),
                       Text(
                         '(${stageScores.length} judges)',
                         style: const TextStyle(
-                            fontSize: 11, color: AppTheme.textMuted),
+                          fontSize: 11,
+                          color: AppTheme.textMuted,
+                        ),
                       ),
                     ],
                   ),

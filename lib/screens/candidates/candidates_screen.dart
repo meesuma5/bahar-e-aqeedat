@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../../models/models.dart';
 import '../../../services/firebase_service.dart';
 import '../../../services/app_logger.dart';
@@ -11,7 +12,7 @@ import 'candidate_detail_sheet.dart';
 
 enum _SortBy { name, age, sessionDate, averageScore }
 
-enum _GroupBy { none, category }
+enum _GroupBy { none, category, session, stageCategory }
 
 class CandidatesScreen extends ConsumerStatefulWidget {
   const CandidatesScreen({super.key});
@@ -24,10 +25,14 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
   _SortBy _sortBy = _SortBy.name;
   _GroupBy _groupBy = _GroupBy.none;
   String _search = '';
+  bool _topOnly = false;
+  final Map<int, int> _topPerStage = {1: 15, 2: 15, 3: 15, 4: 15};
 
   @override
   Widget build(BuildContext context) {
     final candidatesAsync = ref.watch(candidatesStreamProvider);
+    final sessionsAsync = ref.watch(sessionsStreamProvider);
+    final scoresAsync = ref.watch(scoresStreamProvider);
     return Scaffold(
       appBar: GradientAppBar(
         title: 'Candidates',
@@ -59,7 +64,7 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
                   );
                 },
                 data: (candidates) {
-                  final filtered = _filter(candidates);
+                  final filtered = _filter(candidates, scoresAsync.value);
                   if (filtered.isEmpty) {
                     return _buildScrollableEmptyState(
                       const EmptyState(
@@ -69,7 +74,7 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
                       ),
                     );
                   }
-                  return _buildList(filtered);
+                  return _buildList(filtered, sessionsAsync);
                 },
               ),
             ),
@@ -126,12 +131,31 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
     );
   }
 
-  List<Candidate> _filter(List<Candidate> all) {
+  List<Candidate> _filter(List<Candidate> all, List<Score>? allScores) {
     var list = all.where((c) {
       if (_search.isEmpty) return true;
       return c.name.toLowerCase().contains(_search.toLowerCase()) ||
           c.fatherName.toLowerCase().contains(_search.toLowerCase());
     }).toList();
+
+    final totalsByCandidateStage = <String, Map<int, double>>{};
+    if (allScores != null) {
+      for (final score in allScores) {
+        final stageTotals = totalsByCandidateStage.putIfAbsent(
+          score.candidateId,
+          () => <int, double>{},
+        );
+        stageTotals.update(
+          score.stage,
+          (value) => value + score.total,
+          ifAbsent: () => score.total,
+        );
+      }
+    }
+
+    if (_topOnly) {
+      list = _topByStageCategory(list, totalsByCandidateStage);
+    }
 
     switch (_sortBy) {
       case _SortBy.name:
@@ -144,20 +168,137 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
         list.sort((a, b) => a.stage.compareTo(b.stage));
         break;
       case _SortBy.averageScore:
-        // Sorted by stage desc as proxy; real avg requires async
-        list.sort((a, b) => b.stage.compareTo(a.stage));
+        list.sort((a, b) {
+          final totalA = totalsByCandidateStage[a.id]?[a.stage] ?? 0;
+          final totalB = totalsByCandidateStage[b.id]?[b.stage] ?? 0;
+          final cmp = totalB.compareTo(totalA);
+          return cmp != 0 ? cmp : a.name.compareTo(b.name);
+        });
         break;
     }
     return list;
   }
 
-  Widget _buildList(List<Candidate> candidates) {
+  List<Candidate> _topByStageCategory(
+    List<Candidate> candidates,
+    Map<String, Map<int, double>> totalsByCandidateStage,
+  ) {
+    final grouped = <String, List<Candidate>>{};
+    for (final candidate in candidates) {
+      final key = '${candidate.stage}-${candidate.isSenior}';
+      grouped.putIfAbsent(key, () => []).add(candidate);
+    }
+
+    final result = <Candidate>[];
+    final stageOrder = grouped.keys
+        .map((k) => int.parse(k.split('-').first))
+        .toSet()
+        .toList()
+      ..sort();
+
+    for (final stage in stageOrder) {
+      for (final isSenior in [true, false]) {
+        final key = '$stage-$isSenior';
+        final group = grouped[key];
+        if (group == null || group.isEmpty) continue;
+        group.sort((a, b) {
+          final totalA = totalsByCandidateStage[a.id]?[a.stage] ?? 0;
+          final totalB = totalsByCandidateStage[b.id]?[b.stage] ?? 0;
+          final cmp = totalB.compareTo(totalA);
+          return cmp != 0 ? cmp : a.name.compareTo(b.name);
+        });
+        final limit = _topPerStage[stage] ?? 15;
+        result.addAll(group.take(limit));
+      }
+    }
+
+    return result;
+  }
+
+  Widget _buildList(
+    List<Candidate> candidates,
+    AsyncValue<List<Session>> sessionsAsync,
+  ) {
     if (_groupBy == _GroupBy.none) {
       return ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
         itemCount: candidates.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (_, i) => _CandidateCard(candidate: candidates[i]),
+      );
+    }
+
+    if (_groupBy == _GroupBy.session) {
+      final sessions = sessionsAsync.value;
+      if (sessions == null) {
+        return _buildScrollablePlaceholder(
+          const Text('Loading sessions...'),
+        );
+      }
+
+      final sortedSessions = [...sessions]
+        ..sort((a, b) => b.date.compareTo(a.date));
+
+      final sessionByCandidate = <String, Session>{};
+      for (final session in sortedSessions) {
+        for (final candidateId in session.candidateIds) {
+          sessionByCandidate.putIfAbsent(candidateId, () => session);
+        }
+      }
+
+      final grouped = <Session?, List<Candidate>>{};
+      for (final candidate in candidates) {
+        final session = sessionByCandidate[candidate.id];
+        grouped.putIfAbsent(session, () => []).add(candidate);
+      }
+
+      final groups = grouped.entries.toList()
+        ..sort((a, b) {
+          if (a.key == null && b.key == null) return 0;
+          if (a.key == null) return 1;
+          if (b.key == null) return -1;
+          return b.key!.date.compareTo(a.key!.date);
+        });
+
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+        children: [
+          for (final entry in groups) ...[
+            _sessionGroupHeader(entry.key, entry.value.length),
+            const SizedBox(height: 8),
+            ...entry.value.map(
+              (c) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _CandidateCard(candidate: c),
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+
+    if (_groupBy == _GroupBy.stageCategory) {
+      final stages = candidates.map((c) => c.stage).toSet().toList()..sort();
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+        children: [
+          for (final stage in stages) ...[
+            _stageHeader(stage),
+            const SizedBox(height: 8),
+            _categoryBlock(
+              candidates.where((c) => c.stage == stage && c.isSenior).toList(),
+              'Senior',
+              AppTheme.seniorBadge,
+            ),
+            const SizedBox(height: 8),
+            _categoryBlock(
+              candidates.where((c) => c.stage == stage && !c.isSenior).toList(),
+              'Junior',
+              AppTheme.juniorBadge,
+            ),
+            const SizedBox(height: 8),
+          ],
+        ],
       );
     }
 
@@ -225,6 +366,101 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
     );
   }
 
+  Widget _stageHeader(int stage) {
+    final label = Session.stageLabel(stage);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.flag_outlined, size: 16, color: AppTheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppTheme.primary,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _categoryBlock(
+    List<Candidate> list,
+    String label,
+    Color color,
+  ) {
+    if (list.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _groupHeader(label, color, list.length),
+        const SizedBox(height: 8),
+        ...list.map(
+          (c) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _CandidateCard(candidate: c),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sessionGroupHeader(Session? session, int count) {
+    if (session == null) {
+      return _groupHeader('No Session', AppTheme.textMuted, count);
+    }
+    final dateLabel = DateFormat('dd MMM yyyy').format(session.date);
+    final stageLabel = Session.stageLabel(session.stage);
+    final title = '$dateLabel · $stageLabel';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.calendar_today_outlined,
+            size: 16,
+            color: AppTheme.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: AppTheme.primary,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Text(
+            '$count candidates',
+            style: TextStyle(
+              color: AppTheme.primary.withOpacity(0.7),
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showFilterSheet() {
     showModalBottomSheet(
       context: context,
@@ -269,6 +505,8 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
                   final labels = {
                     _GroupBy.none: 'None',
                     _GroupBy.category: 'Category',
+                    _GroupBy.session: 'Session',
+                    _GroupBy.stageCategory: 'Stage + Category',
                   };
                   return FilterChip(
                     label: Text(labels[g]!),
@@ -278,6 +516,23 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
                   );
                 }).toList(),
               ),
+              const SizedBox(height: 16),
+              const SectionHeader(title: 'TOP PERFORMERS'),
+              const SizedBox(height: 8),
+              SwitchListTile.adaptive(
+                value: _topOnly,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Show top N per stage and category'),
+                onChanged: (value) => setModal(
+                  () => setState(() => _topOnly = value),
+                ),
+              ),
+              if (_topOnly) ...[
+                const SizedBox(height: 8),
+                ...[1, 2, 3, 4].map(
+                  (stage) => _topStageRow(stage, setModal),
+                ),
+              ],
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
@@ -289,6 +544,41 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _topStageRow(int stage, void Function(VoidCallback) setModal) {
+    final label = Session.stageLabel(stage);
+    final value = _topPerStage[stage] ?? 15;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '$label top N',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+          IconButton(
+            onPressed: value > 1
+                ? () => setModal(
+                      () => setState(
+                        () => _topPerStage[stage] = value - 1,
+                      ),
+                    )
+                : null,
+            icon: const Icon(Icons.remove_circle_outline),
+          ),
+          Text('$value', style: const TextStyle(fontWeight: FontWeight.w600)),
+          IconButton(
+            onPressed: () => setModal(
+              () => setState(() => _topPerStage[stage] = value + 1),
+            ),
+            icon: const Icon(Icons.add_circle_outline),
+          ),
+        ],
       ),
     );
   }

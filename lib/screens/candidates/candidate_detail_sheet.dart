@@ -197,31 +197,29 @@ class CandidateDetailSheet extends ConsumerWidget {
   }
 
   Widget _buildOverallStats(List<Score> scores) {
-    final avgTotal = scores.isEmpty
-        ? 0.0
-        : scores.fold<double>(0, (a, s) => a + s.total) / scores.length;
+    final totalSum = scores.fold<double>(0, (a, s) => a + s.total);
+    final totalMax = scores.length * 100.0;
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SectionHeader(title: 'OVERALL AVERAGES'),
+          const SectionHeader(title: 'OVERALL TOTALS'),
           const SizedBox(height: 12),
           ...kScoreCategories.map((cat) {
-            final avg = scores.isEmpty
-                ? 0.0
-                : scores.fold<double>(0, (a, s) => a + scoreValue(s, cat.key)) /
-                      scores.length;
+            final total =
+                scores.fold<double>(0, (a, s) => a + scoreValue(s, cat.key));
+            final maxValue = scores.length * cat.maxMarks.toDouble();
             return ScoreBar(
               label: cat.label,
-              value: avg,
-              maxValue: cat.maxMarks.toDouble(),
+              value: total,
+              maxValue: maxValue,
             );
           }),
           const Divider(height: 20),
           ScoreBar(
             label: 'Overall',
-            value: avgTotal,
-            maxValue: 100,
+            value: totalSum,
+            maxValue: totalMax,
             color: AppTheme.secondary,
           ),
         ],
@@ -235,17 +233,14 @@ class CandidateDetailSheet extends ConsumerWidget {
     List<Score> stageScores,
     Map<String, Session> sessionMap,
   ) {
-    // Avg per category for this stage
-    final categoryAvgs = {
+    // Total per category for this stage
+    final categoryTotals = {
       for (final cat in kScoreCategories)
-        cat.key: stageScores.isEmpty
-            ? 0.0
-            : stageScores.fold<double>(
-                    0,
-                    (a, s) => a + scoreValue(s, cat.key),
-                  ) /
-                  stageScores.length,
+        cat.key:
+            stageScores.fold<double>(0, (a, s) => a + scoreValue(s, cat.key)),
     };
+    final stageTotal = stageScores.fold<double>(0, (a, s) => a + s.total);
+    final stageMax = stageScores.length * 100.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -257,14 +252,22 @@ class CandidateDetailSheet extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SectionHeader(title: 'STAGE AVERAGES'),
+              const SectionHeader(title: 'STAGE TOTALS'),
               const SizedBox(height: 10),
-              ...kScoreCategories.map(
-                (cat) => ScoreBar(
+              ...kScoreCategories.map((cat) {
+                final maxValue = stageScores.length * cat.maxMarks.toDouble();
+                return ScoreBar(
                   label: cat.label,
-                  value: categoryAvgs[cat.key]!,
-                  maxValue: cat.maxMarks.toDouble(),
-                ),
+                  value: categoryTotals[cat.key]!,
+                  maxValue: maxValue,
+                );
+              }),
+              const Divider(height: 16),
+              ScoreBar(
+                label: 'Stage Total',
+                value: stageTotal,
+                maxValue: stageMax,
+                color: AppTheme.secondary,
               ),
             ],
           ),

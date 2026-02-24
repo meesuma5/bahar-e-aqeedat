@@ -179,6 +179,10 @@ class FirebaseService {
       .snapshots()
       .map((s) => s.docs.map(Score.fromDoc).toList());
 
+    Stream<List<Score>> streamAllScores() => _scores
+      .snapshots()
+      .map((s) => s.docs.map(Score.fromDoc).toList());
+
   Future<List<Score>> getScoresForJudge(String judgeId) async {
     final snap = await _scores.where('judgeId', isEqualTo: judgeId).get();
     return snap.docs.map(Score.fromDoc).toList();
@@ -215,6 +219,16 @@ class FirebaseService {
     final futures = ids.map((id) => _users.doc(id).get());
     final docs = await Future.wait(futures);
     return docs.where((d) => d.exists).map(AppUser.fromDoc).toList();
+  }
+
+  Future<bool> scoreExists(
+    String judgeId,
+    String candidateId,
+    String sessionId,
+  ) async {
+    final id = Score.buildId(judgeId, candidateId, sessionId);
+    final doc = await _scores.doc(id).get();
+    return doc.exists;
   }
 
   // ─── Judge-specific ───────────────────────────────────────────────────────

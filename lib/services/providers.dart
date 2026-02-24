@@ -45,6 +45,10 @@ final sessionScoresProvider = StreamProvider.family<List<Score>, String>((
   return FirebaseService.instance.streamScoresForSession(sessionId);
 });
 
+final scoresStreamProvider = StreamProvider<List<Score>>(
+  (_) => FirebaseService.instance.streamAllScores(),
+);
+
 // ─── Derived ─────────────────────────────────────────────────────────────
 
 final judgesStreamProvider = StreamProvider<List<AppUser>>((ref) {

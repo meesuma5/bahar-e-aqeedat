@@ -166,7 +166,17 @@ class AppTheme {
         chipTheme: ChipThemeData(
           backgroundColor: surface,
           selectedColor: primaryLight.withOpacity(0.2),
-          labelStyle: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500),
+          labelStyle: GoogleFonts.poppins(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: textSecondary,
+          ),
+          secondaryLabelStyle: GoogleFonts.poppins(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: primaryDark,
+          ),
+          checkmarkColor: primaryDark,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         ),
