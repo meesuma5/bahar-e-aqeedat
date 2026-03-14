@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import 'firebase_service.dart';
+import 'munqabat_service.dart';
 
 final firebaseServiceProvider = Provider((_) => FirebaseService.instance);
+final munqabatServiceProvider = Provider((_) => MunqabatService());
 
 // ─── Auth ─────────────────────────────────────────────────────────────────
 
@@ -48,6 +50,11 @@ final sessionScoresProvider = StreamProvider.family<List<Score>, String>((
 final scoresStreamProvider = StreamProvider<List<Score>>(
   (_) => FirebaseService.instance.streamAllScores(),
 );
+
+final munqabatNamesProvider = FutureProvider<List<String>>((ref) async {
+  final svc = ref.read(munqabatServiceProvider);
+  return svc.loadManqabatNames();
+});
 
 // ─── Derived ─────────────────────────────────────────────────────────────
 

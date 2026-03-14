@@ -168,12 +168,14 @@ class Candidate {
 class Session {
   final String id;
   final DateTime date;
-  final int stage; // 1=Prelims, 2=Quarters, 3=Semis, 4=Finals
+  final int stage; // 1=Prelims, 2=Semis, 3=Finals
   final bool isSenior;
   final bool isActive;
   final bool isConducted;
   final List<String> candidateIds;
   final List<String> judgeIds;
+  final Map<String, List<String>> candidateManqabatSelections;
+  final Map<String, String> candidateRecitationSelections;
   final String createdBy;
   final DateTime createdAt;
 
@@ -186,17 +188,28 @@ class Session {
     required this.isConducted,
     required this.candidateIds,
     required this.judgeIds,
+    required this.candidateManqabatSelections,
+    required this.candidateRecitationSelections,
     required this.createdBy,
     required this.createdAt,
   });
 
   static String stageLabel(int stage) {
-    const labels = {1: 'Preliminaries', 2: 'Quarter Finals', 3: 'Semi Finals', 4: 'Finals'};
+    const labels = {1: 'Preliminaries', 2: 'Semi Finals', 3: 'Finals'};
     return labels[stage] ?? 'Stage $stage';
   }
 
   factory Session.fromDoc(DocumentSnapshot doc) {
     final d = doc.data() as Map<String, dynamic>;
+    final manqabatSelections = <String, List<String>>{};
+    final rawManqabatSelections =
+        Map<String, dynamic>.from(d['candidateManqabatSelections'] ?? {});
+    rawManqabatSelections.forEach((key, value) {
+      if (value is List) {
+        manqabatSelections[key] = value.map((e) => e.toString()).toList();
+      }
+    });
+
     return Session(
       id: doc.id,
       date: (d['date'] as Timestamp).toDate(),
@@ -206,6 +219,9 @@ class Session {
       isConducted: d['isConducted'] ?? false,
       candidateIds: List<String>.from(d['candidateIds'] ?? []),
       judgeIds: List<String>.from(d['judgeIds'] ?? []),
+      candidateManqabatSelections: manqabatSelections,
+      candidateRecitationSelections:
+          Map<String, String>.from(d['candidateRecitationSelections'] ?? {}),
       createdBy: d['createdBy'] ?? '',
       createdAt: (d['createdAt'] as Timestamp).toDate(),
     );
@@ -219,6 +235,8 @@ class Session {
         'isConducted': isConducted,
         'candidateIds': candidateIds,
         'judgeIds': judgeIds,
+        'candidateManqabatSelections': candidateManqabatSelections,
+        'candidateRecitationSelections': candidateRecitationSelections,
         'createdBy': createdBy,
         'createdAt': Timestamp.fromDate(createdAt),
       };
@@ -231,6 +249,8 @@ class Session {
     bool? isConducted,
     List<String>? candidateIds,
     List<String>? judgeIds,
+    Map<String, List<String>>? candidateManqabatSelections,
+    Map<String, String>? candidateRecitationSelections,
   }) =>
       Session(
         id: id,
@@ -241,6 +261,10 @@ class Session {
         isConducted: isConducted ?? this.isConducted,
         candidateIds: candidateIds ?? this.candidateIds,
         judgeIds: judgeIds ?? this.judgeIds,
+        candidateManqabatSelections:
+            candidateManqabatSelections ?? this.candidateManqabatSelections,
+        candidateRecitationSelections:
+            candidateRecitationSelections ?? this.candidateRecitationSelections,
         createdBy: createdBy,
         createdAt: createdAt,
       );

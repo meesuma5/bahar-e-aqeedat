@@ -125,6 +125,16 @@ class FirebaseService {
   Future<void> updateSession(String id, Map<String, dynamic> data) =>
       _sessions.doc(id).update(data);
 
+  Future<void> setCandidateRecitationSelection(
+    String sessionId,
+    String candidateId,
+    String manqabatName,
+  ) async {
+    await _sessions.doc(sessionId).update({
+      'candidateRecitationSelections.$candidateId': manqabatName,
+    });
+  }
+
   Future<Session?> getSession(String id) async {
     final doc = await _sessions.doc(id).get();
     if (!doc.exists) return null;

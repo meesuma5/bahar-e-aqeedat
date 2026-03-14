@@ -26,7 +26,7 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
   _GroupBy _groupBy = _GroupBy.none;
   String _search = '';
   bool _topOnly = false;
-  final Map<int, int> _topPerStage = {1: 15, 2: 15, 3: 15, 4: 15};
+  final Map<int, int> _topPerStage = {1: 10, 2: 10, 3: 10};
 
   @override
   Widget build(BuildContext context) {

@@ -29,9 +29,19 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
     'tazeem': 0,
   };
   final _commentsCtrl = TextEditingController();
+  String? _selectedManqabat;
   bool _saving = false;
 
   double get _total => _scores.values.fold(0, (a, b) => a + b);
+  List<String> get _manqabatOptions =>
+      widget.session.candidateManqabatSelections[widget.candidate.id] ?? [];
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedManqabat =
+        widget.session.candidateRecitationSelections[widget.candidate.id];
+  }
 
   @override
   void dispose() {
@@ -40,6 +50,17 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
   }
 
   Future<void> _confirmAndSave() async {
+    if (widget.session.stage >= 2 && _manqabatOptions.isNotEmpty) {
+      if (_selectedManqabat == null || _selectedManqabat!.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select the recitation Manqabat.'),
+          ),
+        );
+        return;
+      }
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -157,6 +178,13 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
         comments: _commentsCtrl.text.trim(),
         submittedAt: DateTime.now(),
       );
+      if (widget.session.stage >= 2 && _selectedManqabat != null) {
+        await FirebaseService.instance.setCandidateRecitationSelection(
+          widget.session.id,
+          widget.candidate.id,
+          _selectedManqabat!,
+        );
+      }
       await FirebaseService.instance.submitScore(score);
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -191,6 +219,10 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                   candidateId: widget.candidate.id,
                   currentStage: widget.session.stage,
                 ),
+                const SizedBox(height: 16),
+              ],
+              if (widget.session.stage >= 2) ...[
+                _buildManqabatSelector(),
                 const SizedBox(height: 16),
               ],
               _buildScoreSliders(),
@@ -259,6 +291,37 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                   ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildManqabatSelector() {
+    if (_manqabatOptions.isEmpty) {
+      return const AppCard(
+        child: Text(
+          'No Manqabat selections available for this candidate.',
+          style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
+        ),
+      );
+    }
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionHeader(title: 'RECITATION MANQABAT'),
+          const SizedBox(height: 8),
+          ..._manqabatOptions.map(
+            (name) => RadioListTile<String>(
+              value: name,
+              groupValue: _selectedManqabat,
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: Text(name, style: const TextStyle(fontSize: 13)),
+              onChanged: (v) => setState(() => _selectedManqabat = v),
             ),
           ),
         ],

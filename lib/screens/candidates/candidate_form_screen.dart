@@ -397,9 +397,8 @@ class _CandidateFormScreenState extends ConsumerState<CandidateFormScreen> {
             ),
             items: const [
               DropdownMenuItem(value: 1, child: Text('Preliminaries')),
-              DropdownMenuItem(value: 2, child: Text('Quarter Finals')),
-              DropdownMenuItem(value: 3, child: Text('Semi Finals')),
-              DropdownMenuItem(value: 4, child: Text('Finals')),
+              DropdownMenuItem(value: 2, child: Text('Semi Finals')),
+              DropdownMenuItem(value: 3, child: Text('Finals')),
             ],
             onChanged: (v) => setState(() => _stage = v!),
           ),

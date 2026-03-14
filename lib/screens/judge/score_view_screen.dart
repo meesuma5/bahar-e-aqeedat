@@ -21,10 +21,7 @@ class ScoreViewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: GradientAppBar(
-        title: 'Score Details',
-        showBack: true,
-      ),
+      appBar: GradientAppBar(title: 'Score Details', showBack: true),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -32,11 +29,19 @@ class ScoreViewScreen extends StatelessWidget {
           children: [
             _buildCandidateHeader(context),
             const SizedBox(height: 16),
+            if (session.stage >= 2 &&
+                session.candidateRecitationSelections[candidate.id] !=
+                    null) ...[
+              _buildRecitationCard(),
+              const SizedBox(height: 16),
+            ],
             _buildReadOnlyScores(),
             const SizedBox(height: 16),
             if (session.stage > 1) ...[
               _PreviousStageSummaryCard(
-                  candidateId: candidate.id, currentStage: session.stage),
+                candidateId: candidate.id,
+                currentStage: session.stage,
+              ),
               const SizedBox(height: 16),
             ],
             if (myScore.comments.isNotEmpty) _buildCommentsCard(),
@@ -52,26 +57,41 @@ class ScoreViewScreen extends StatelessWidget {
       child: Row(
         children: [
           AvatarWidget(
-              imageUrl: candidate.imageUrl, name: candidate.name, radius: 32),
+            imageUrl: candidate.imageUrl,
+            name: candidate.name,
+            radius: 32,
+          ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(candidate.name,
-                    style: Theme.of(context).textTheme.headlineSmall),
+                Text(
+                  candidate.name,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
                 const SizedBox(height: 2),
-                Text('S/O ${candidate.fatherName}',
-                    style: const TextStyle(
-                        color: AppTheme.textSecondary, fontSize: 13)),
+                Text(
+                  'S/O ${candidate.fatherName}',
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
                 const SizedBox(height: 6),
-                Row(children: [
-                  seniorJuniorBadge(candidate.isSenior),
-                  const SizedBox(width: 6),
-                  Text(candidate.exactAge,
+                Row(
+                  children: [
+                    seniorJuniorBadge(candidate.isSenior),
+                    const SizedBox(width: 6),
+                    Text(
+                      candidate.exactAge,
                       style: const TextStyle(
-                          fontSize: 11, color: AppTheme.textMuted)),
-                ]),
+                        fontSize: 11,
+                        color: AppTheme.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -90,7 +110,10 @@ class ScoreViewScreen extends StatelessWidget {
             children: [
               const SectionHeader(title: 'YOUR SCORES'),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   gradient: AppTheme.primaryGradient,
                   borderRadius: BorderRadius.circular(20),
@@ -98,35 +121,41 @@ class ScoreViewScreen extends StatelessWidget {
                 child: Text(
                   '${myScore.total.toStringAsFixed(0)}/100',
                   style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 16),
-          ...kScoreCategories.map((cat) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _ReadOnlyScoreRow(
-                  label: cat.label,
-                  value: scoreValue(myScore, cat.key),
-                  maxValue: cat.maxMarks.toDouble(),
-                ),
-              )),
+          ...kScoreCategories.map(
+            (cat) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _ReadOnlyScoreRow(
+                label: cat.label,
+                value: scoreValue(myScore, cat.key),
+                maxValue: cat.maxMarks.toDouble(),
+              ),
+            ),
+          ),
           const Divider(height: 8),
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Total',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              const Text(
+                'Total',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+              ),
               Text(
                 '${myScore.total.toStringAsFixed(0)} / 100',
                 style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                    color: AppTheme.secondary),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  color: AppTheme.secondary,
+                ),
               ),
             ],
           ),
@@ -155,6 +184,27 @@ class ScoreViewScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildRecitationCard() {
+    final name = session.candidateRecitationSelections[candidate.id] ?? '';
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionHeader(title: 'RECITATION MANQABAT'),
+          const SizedBox(height: 10),
+          Text(
+            name,
+            style: const TextStyle(
+              fontSize: 14,
+              color: AppTheme.textSecondary,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCommentsCard() {
     return AppCard(
       child: Column(
@@ -165,10 +215,11 @@ class ScoreViewScreen extends StatelessWidget {
           Text(
             myScore.comments,
             style: const TextStyle(
-                fontSize: 14,
-                color: AppTheme.textSecondary,
-                fontStyle: FontStyle.italic,
-                height: 1.5),
+              fontSize: 14,
+              color: AppTheme.textSecondary,
+              fontStyle: FontStyle.italic,
+              height: 1.5,
+            ),
           ),
         ],
       ),
@@ -181,8 +232,11 @@ class _ReadOnlyScoreRow extends StatelessWidget {
   final double value;
   final double maxValue;
 
-  const _ReadOnlyScoreRow(
-      {required this.label, required this.value, required this.maxValue});
+  const _ReadOnlyScoreRow({
+    required this.label,
+    required this.value,
+    required this.maxValue,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -190,9 +244,12 @@ class _ReadOnlyScoreRow extends StatelessWidget {
     Color color;
     if (pct >= 0.8) {
       color = AppTheme.success;
-    } else if (pct >= 0.6) color = AppTheme.secondary;
-    else if (pct >= 0.4) color = AppTheme.warning;
-    else color = AppTheme.primary;
+    } else if (pct >= 0.6)
+      color = AppTheme.secondary;
+    else if (pct >= 0.4)
+      color = AppTheme.warning;
+    else
+      color = AppTheme.primary;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -200,15 +257,17 @@ class _ReadOnlyScoreRow extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w500, fontSize: 14)),
+            Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+            ),
             Text(
               '${value.toStringAsFixed(0)} / ${maxValue.toInt()}',
               style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14),
+                color: color,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ),
             ),
           ],
         ),
@@ -231,14 +290,18 @@ class _PreviousStageSummaryCard extends StatelessWidget {
   final String candidateId;
   final int currentStage;
 
-  const _PreviousStageSummaryCard(
-      {required this.candidateId, required this.currentStage});
+  const _PreviousStageSummaryCard({
+    required this.candidateId,
+    required this.currentStage,
+  });
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Score>>(
-      future: FirebaseService.instance
-          .getPreviousStageScores(candidateId, currentStage),
+      future: FirebaseService.instance.getPreviousStageScores(
+        candidateId,
+        currentStage,
+      ),
       builder: (_, snap) {
         final scores = snap.data ?? [];
         if (scores.isEmpty) return const SizedBox.shrink();
@@ -259,7 +322,7 @@ class _PreviousStageSummaryCard extends StatelessWidget {
                 final stageScores = e.value;
                 final overallAvg =
                     stageScores.fold<double>(0, (a, s) => a + s.total) /
-                        stageScores.length;
+                    stageScores.length;
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -270,16 +333,20 @@ class _PreviousStageSummaryCard extends StatelessWidget {
                         Text(
                           'All judges avg: ${overallAvg.toStringAsFixed(1)}/100',
                           style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                              color: AppTheme.secondary),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            color: AppTheme.secondary,
+                          ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 8),
                     ...kScoreCategories.map((cat) {
-                      final catAvg = stageScores.fold<double>(
-                              0, (a, s) => a + scoreValue(s, cat.key)) /
+                      final catAvg =
+                          stageScores.fold<double>(
+                            0,
+                            (a, s) => a + scoreValue(s, cat.key),
+                          ) /
                           stageScores.length;
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 4),

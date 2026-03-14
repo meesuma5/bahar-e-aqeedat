@@ -26,6 +26,8 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
   late bool _isConducted;
   late List<String> _candidateIds;
   late List<String> _judgeIds;
+  late Map<String, List<String>> _candidateManqabatSelections;
+  late Map<String, String> _candidateRecitationSelections;
   bool _loading = false;
 
   @override
@@ -38,6 +40,10 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
     _isConducted = _existing?.isConducted ?? false;
     _candidateIds = List.from(_existing?.candidateIds ?? []);
     _judgeIds = List.from(_existing?.judgeIds ?? []);
+    _candidateManqabatSelections =
+      Map<String, List<String>>.from(_existing?.candidateManqabatSelections ?? {});
+    _candidateRecitationSelections =
+      Map<String, String>.from(_existing?.candidateRecitationSelections ?? {});
   }
 
   Future<void> _save() async {
@@ -45,6 +51,34 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
     if (_isActive && _isConducted) {
       _showError('A session cannot be both active and conducted.');
       return;
+    }
+
+    if (_stage == 2) {
+      final candidates = ref.read(candidatesStreamProvider).value;
+      final scores = ref.read(scoresStreamProvider).value;
+      if (candidates == null || scores == null) {
+        _showError('Please wait for candidates and scores to load.');
+        return;
+      }
+      final eligible = _eligibleCandidatesForSemis(candidates, scores, _isSenior)
+          .map((c) => c.id)
+          .toSet();
+      final invalid = _candidateIds.where((id) => !eligible.contains(id)).toList();
+      if (invalid.isNotEmpty) {
+        _showError('Semi finals can only include the top 10 from preliminaries.');
+        return;
+      }
+    }
+
+    if (_stage >= 2) {
+      final missing = _candidateIds.where((id) {
+        final count = _candidateManqabatSelections[id]?.length ?? 0;
+        return count < 3;
+      }).toList();
+      if (missing.isNotEmpty) {
+        _showError('Each candidate must have at least 3 Manqabat selections.');
+        return;
+      }
     }
 
     setState(() => _loading = true);
@@ -62,6 +96,8 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
             'isConducted': _isConducted,
             'candidateIds': _candidateIds,
             'judgeIds': _judgeIds,
+            'candidateManqabatSelections': _candidateManqabatSelections,
+            'candidateRecitationSelections': _candidateRecitationSelections,
           });
         } else {
           await svc.updateSession(_existing!.id, _buildMap(uid));
@@ -76,6 +112,8 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
           isConducted: _isConducted,
           candidateIds: _candidateIds,
           judgeIds: _judgeIds,
+          candidateManqabatSelections: _candidateManqabatSelections,
+          candidateRecitationSelections: _candidateRecitationSelections,
           createdBy: uid,
           createdAt: DateTime.now(),
         );
@@ -99,6 +137,8 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
         'isConducted': _isConducted,
         'candidateIds': _candidateIds,
         'judgeIds': _judgeIds,
+        'candidateManqabatSelections': _candidateManqabatSelections,
+        'candidateRecitationSelections': _candidateRecitationSelections,
         'createdBy': uid,
         'createdAt': DateTime.now(),
       };
@@ -194,11 +234,16 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
               decoration: const InputDecoration(),
               items: const [
                 DropdownMenuItem(value: 1, child: Text('Preliminaries')),
-                DropdownMenuItem(value: 2, child: Text('Quarter Finals')),
-                DropdownMenuItem(value: 3, child: Text('Semi Finals')),
-                DropdownMenuItem(value: 4, child: Text('Finals')),
+                DropdownMenuItem(value: 2, child: Text('Semi Finals')),
+                DropdownMenuItem(value: 3, child: Text('Finals')),
               ],
-              onChanged: (v) => setState(() => _stage = v!),
+              onChanged: (v) => setState(() {
+                _stage = v!;
+                if (_stage < 2) {
+                  _candidateManqabatSelections.clear();
+                  _candidateRecitationSelections.clear();
+                }
+              }),
             ),
           ),
           const SizedBox(height: 16),
@@ -225,6 +270,8 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
         _isSenior = isSenior;
         // Remove candidates that don't match category
         _candidateIds.clear();
+        _candidateManqabatSelections.clear();
+        _candidateRecitationSelections.clear();
       }),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
@@ -313,6 +360,8 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
 
   Widget _buildCandidatesSection() {
     final candidatesAsync = ref.watch(candidatesStreamProvider);
+    final scoresAsync = ref.watch(scoresStreamProvider);
+    final manqabatAsync = ref.watch(munqabatNamesProvider);
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -321,24 +370,44 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
             title: 'CANDIDATES (${_candidateIds.length})',
             trailing: candidatesAsync.maybeWhen(
               data: (all) {
-                final eligible = all.where((c) => c.isSenior == _isSenior).toList();
+                final eligible = _stage == 2
+                    ? _eligibleCandidatesForSemis(
+                        all,
+                        scoresAsync.value,
+                        _isSenior,
+                      )
+                    : all.where((c) => c.isSenior == _isSenior).toList();
                 return TextButton.icon(
                   icon: const Icon(Icons.add, size: 16),
-                  label: const Text('Add'),
-                  onPressed: () => _showPickerSheet(
-                    context,
-                    title: 'Select Candidates',
-                    items: eligible
-                        .map((c) => _PickerItem(id: c.id, label: c.name, subtitle: c.exactAge))
-                        .toList(),
-                    selected: _candidateIds,
-                    onChanged: (ids) => setState(() => _candidateIds = ids),
-                  ),
+                  label: Text(_stage == 2 ? 'Add (Top 10)' : 'Add'),
+                  onPressed: (_stage == 2 && scoresAsync.value == null)
+                      ? null
+                      : () => _showPickerSheet(
+                            context,
+                            title: 'Select Candidates',
+                            items: eligible
+                                .map((c) => _PickerItem(
+                                    id: c.id, label: c.name, subtitle: c.exactAge))
+                                .toList(),
+                            selected: _candidateIds,
+                            onChanged: (ids) => setState(() {
+                              _candidateIds = ids;
+                              _syncCandidateSelections(ids);
+                            }),
+                          ),
                 );
               },
               orElse: () => null,
             ),
           ),
+          if (_stage == 2)
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(
+                'Semi finals: top 10 from preliminaries for this category.',
+                style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
+              ),
+            ),
           const SizedBox(height: 12),
           candidatesAsync.maybeWhen(
             data: (all) {
@@ -348,7 +417,35 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
                     style: TextStyle(color: AppTheme.textMuted, fontSize: 13));
               }
               return Column(
-                children: selected.map((c) => _candidateChip(c)).toList(),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ...selected.map((c) => _candidateChip(c)),
+                  if (_stage >= 2) ...[
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Manqabat selections (min 3 each)',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    ),
+                    const SizedBox(height: 8),
+                    manqabatAsync.when(
+                      loading: () => const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: CircularProgressIndicator(),
+                      ),
+                      error: (_, __) => const Text(
+                        'Unable to load Manqabat list.',
+                        style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                      ),
+                      data: (names) => Column(
+                        children: selected
+                            .map((c) => _manqabatSelector(c, names))
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ],
               );
             },
             orElse: () => const SizedBox.shrink(),
@@ -356,6 +453,40 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
         ],
       ),
     );
+  }
+
+  List<Candidate> _eligibleCandidatesForSemis(
+    List<Candidate> candidates,
+    List<Score>? scores,
+    bool isSenior,
+  ) {
+    const limit = 10;
+    final stageCandidates = candidates
+        .where((c) => c.stage == 1 && c.isSenior == isSenior)
+        .toList();
+    final totals = <String, double>{};
+    if (scores != null) {
+      for (final score in scores) {
+        if (score.stage != 1) continue;
+        totals.update(
+          score.candidateId,
+          (value) => value + score.total,
+          ifAbsent: () => score.total,
+        );
+      }
+    }
+    stageCandidates.sort((a, b) {
+      final totalA = totals[a.id] ?? 0;
+      final totalB = totals[b.id] ?? 0;
+      final cmp = totalB.compareTo(totalA);
+      return cmp != 0 ? cmp : a.name.compareTo(b.name);
+    });
+    return stageCandidates.take(limit).toList();
+  }
+
+  void _syncCandidateSelections(List<String> ids) {
+    _candidateManqabatSelections.removeWhere((key, _) => !ids.contains(key));
+    _candidateRecitationSelections.removeWhere((key, _) => !ids.contains(key));
   }
 
   Widget _candidateChip(Candidate c) {
@@ -378,8 +509,68 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.close, size: 16, color: AppTheme.textMuted),
-            onPressed: () => setState(() => _candidateIds.remove(c.id)),
+            onPressed: () => setState(() {
+              _candidateIds.remove(c.id);
+              _candidateManqabatSelections.remove(c.id);
+              _candidateRecitationSelections.remove(c.id);
+            }),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _manqabatSelector(Candidate candidate, List<String> names) {
+    final selected = _candidateManqabatSelections[candidate.id] ?? [];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  candidate.name,
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ),
+              Text(
+                '${selected.length} selected',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: selected.length < 3 ? AppTheme.error : AppTheme.textMuted,
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () => _showPickerSheet(
+                  context,
+                  title: 'Select Manqabat',
+                  items: names
+                      .map((n) => _PickerItem(id: n, label: n, subtitle: ''))
+                      .toList(),
+                  selected: selected,
+                  onChanged: (ids) => setState(() {
+                    _candidateManqabatSelections[candidate.id] = ids;
+                    final recitation = _candidateRecitationSelections[candidate.id];
+                    if (recitation != null && !ids.contains(recitation)) {
+                      _candidateRecitationSelections.remove(candidate.id);
+                    }
+                  }),
+                ),
+                child: const Text('Select'),
+              ),
+            ],
+          ),
+          if (selected.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                selected.join(', '),
+                style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+              ),
+            ),
         ],
       ),
     );
