@@ -175,22 +175,35 @@ class CandidateDetailSheet extends ConsumerWidget {
       );
     }
 
-    // Group scores by stage
-    final scoresByStage = <int, List<Score>>{};
+    // Group scores by session
+    final scoresBySession = <String, List<Score>>{};
     for (final s in scores) {
-      scoresByStage.putIfAbsent(s.stage, () => []).add(s);
+      scoresBySession.putIfAbsent(s.sessionId, () => []).add(s);
     }
 
     final sessionMap = {for (final s in sessions) s.id: s};
+    final orderedSessionIds = scoresBySession.keys.toList()
+      ..sort((a, b) {
+        final aDate = sessionMap[a]?.date;
+        final bDate = sessionMap[b]?.date;
+        if (aDate == null && bDate == null) return a.compareTo(b);
+        if (aDate == null) return 1;
+        if (bDate == null) return -1;
+        return bDate.compareTo(aDate);
+      });
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildOverallStats(scores),
         const SizedBox(height: 16),
-        ...scoresByStage.entries.map(
-          (entry) =>
-              _buildStageScores(context, entry.key, entry.value, sessionMap),
+        ...orderedSessionIds.map(
+          (sessionId) => _buildSessionScores(
+            context,
+            sessionId,
+            scoresBySession[sessionId]!,
+            sessionMap,
+          ),
         ),
       ],
     );
@@ -206,14 +219,12 @@ class CandidateDetailSheet extends ConsumerWidget {
           const SectionHeader(title: 'OVERALL TOTALS'),
           const SizedBox(height: 12),
           ...kScoreCategories.map((cat) {
-            final total =
-                scores.fold<double>(0, (a, s) => a + scoreValue(s, cat.key));
-            final maxValue = scores.length * cat.maxMarks.toDouble();
-            return ScoreBar(
-              label: cat.label,
-              value: total,
-              maxValue: maxValue,
+            final total = scores.fold<double>(
+              0,
+              (a, s) => a + scoreValue(s, cat.key),
             );
+            final maxValue = scores.length * cat.maxMarks.toDouble();
+            return ScoreBar(label: cat.label, value: total, maxValue: maxValue);
           }),
           const Divider(height: 20),
           ScoreBar(
@@ -227,35 +238,50 @@ class CandidateDetailSheet extends ConsumerWidget {
     );
   }
 
-  Widget _buildStageScores(
+  Widget _buildSessionScores(
     BuildContext context,
-    int stage,
-    List<Score> stageScores,
+    String sessionId,
+    List<Score> sessionScores,
     Map<String, Session> sessionMap,
   ) {
-    // Total per category for this stage
+    final session = sessionMap[sessionId];
+
+    // Total per category for this session
     final categoryTotals = {
       for (final cat in kScoreCategories)
-        cat.key:
-            stageScores.fold<double>(0, (a, s) => a + scoreValue(s, cat.key)),
+        cat.key: sessionScores.fold<double>(
+          0,
+          (a, s) => a + scoreValue(s, cat.key),
+        ),
     };
-    final stageTotal = stageScores.fold<double>(0, (a, s) => a + s.total);
-    final stageMax = stageScores.length * 100.0;
+    final sessionTotal = sessionScores.fold<double>(0, (a, s) => a + s.total);
+    final sessionMax = sessionScores.length * 100.0;
+
+    final stage = session?.stage ?? sessionScores.first.stage;
+    final sessionTitle = session == null
+        ? 'Session'
+        : 'Session • ${DateFormat('dd MMM yyyy').format(session.date)}';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 12),
-        stageBadge(stage),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(sessionTitle, style: Theme.of(context).textTheme.titleMedium),
+            stageBadge(stage),
+          ],
+        ),
         const SizedBox(height: 10),
         AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SectionHeader(title: 'STAGE TOTALS'),
+              const SectionHeader(title: 'SESSION TOTALS'),
               const SizedBox(height: 10),
               ...kScoreCategories.map((cat) {
-                final maxValue = stageScores.length * cat.maxMarks.toDouble();
+                final maxValue = sessionScores.length * cat.maxMarks.toDouble();
                 return ScoreBar(
                   label: cat.label,
                   value: categoryTotals[cat.key]!,
@@ -264,9 +290,9 @@ class CandidateDetailSheet extends ConsumerWidget {
               }),
               const Divider(height: 16),
               ScoreBar(
-                label: 'Stage Total',
-                value: stageTotal,
-                maxValue: stageMax,
+                label: 'Session Total',
+                value: sessionTotal,
+                maxValue: sessionMax,
                 color: AppTheme.secondary,
               ),
             ],
@@ -274,7 +300,7 @@ class CandidateDetailSheet extends ConsumerWidget {
         ),
         const SizedBox(height: 10),
         // Per-judge scores
-        ...stageScores.map((score) => _buildJudgeScore(score)),
+        ...sessionScores.map((score) => _buildJudgeScore(score)),
       ],
     );
   }

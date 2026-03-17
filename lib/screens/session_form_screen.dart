@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/models.dart';
 import '../../services/firebase_service.dart';
 import '../../services/providers.dart';
@@ -40,10 +41,12 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
     _isConducted = _existing?.isConducted ?? false;
     _candidateIds = List.from(_existing?.candidateIds ?? []);
     _judgeIds = List.from(_existing?.judgeIds ?? []);
-    _candidateManqabatSelections =
-      Map<String, List<String>>.from(_existing?.candidateManqabatSelections ?? {});
-    _candidateRecitationSelections =
-      Map<String, String>.from(_existing?.candidateRecitationSelections ?? {});
+    _candidateManqabatSelections = Map<String, List<String>>.from(
+      _existing?.candidateManqabatSelections ?? {},
+    );
+    _candidateRecitationSelections = Map<String, String>.from(
+      _existing?.candidateRecitationSelections ?? {},
+    );
   }
 
   Future<void> _save() async {
@@ -53,19 +56,26 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
       return;
     }
 
-    if (_stage == 2) {
+    if (_stage >= 2) {
       final candidates = ref.read(candidatesStreamProvider).value;
-      final scores = ref.read(scoresStreamProvider).value;
-      if (candidates == null || scores == null) {
-        _showError('Please wait for candidates and scores to load.');
+      if (candidates == null) {
+        _showError('Please wait for candidates to load.');
         return;
       }
-      final eligible = _eligibleCandidatesForSemis(candidates, scores, _isSenior)
+      final allowedStages = _allowedCandidateStagesForSession(_stage);
+      final eligible = candidates
+          .where(
+            (c) => allowedStages.contains(c.stage) && c.isSenior == _isSenior,
+          )
           .map((c) => c.id)
           .toSet();
-      final invalid = _candidateIds.where((id) => !eligible.contains(id)).toList();
+      final invalid = _candidateIds
+          .where((id) => !eligible.contains(id))
+          .toList();
       if (invalid.isNotEmpty) {
-        _showError('Semi finals can only include the top 10 from preliminaries.');
+        _showError(
+          '${Session.stageLabel(_stage)} can only include ${_allowedStageLabel(_stage)} level candidates.',
+        );
         return;
       }
     }
@@ -83,8 +93,15 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
 
     setState(() => _loading = true);
     try {
+      debugPrint(
+        '[SessionSave] Start: editing=$_isEditing stage=$_stage isSenior=$_isSenior active=$_isActive conducted=$_isConducted candidates=${_candidateIds.length} judges=${_judgeIds.length}',
+      );
       final svc = FirebaseService.instance;
       final uid = svc.currentUserId!;
+      final affectedCandidateIds = {
+        ..._candidateIds,
+        ...?_existing?.candidateIds,
+      }.toList();
 
       if (_isEditing) {
         if (_isActive) {
@@ -118,11 +135,24 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
           createdAt: DateTime.now(),
         );
         final id = await svc.createSession(newSession);
+        debugPrint('[SessionSave] Created session id=$id');
         if (_isActive) await svc.setSessionActive(id);
       }
 
+      debugPrint(
+        '[SessionSave] Syncing candidate stages for ids=${affectedCandidateIds.join(',')}',
+      );
+      await svc.syncCandidateStagesFromLatestSessions(affectedCandidateIds);
+      debugPrint('[SessionSave] Success');
+
       if (mounted) Navigator.pop(context);
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[SessionSave] Error type=${e.runtimeType} value=$e');
+      if (e is FirebaseException) {
+        debugPrint('[SessionSave] Firebase code=${e.code}');
+        debugPrint('[SessionSave] Firebase message=${e.message}');
+      }
+      debugPrint('[SessionSave] Stack=$st');
       _showError('Failed to save: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -130,18 +160,18 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
   }
 
   Map<String, dynamic> _buildMap(String uid) => {
-        'date': _date,
-        'stage': _stage,
-        'isSenior': _isSenior,
-        'isActive': _isActive,
-        'isConducted': _isConducted,
-        'candidateIds': _candidateIds,
-        'judgeIds': _judgeIds,
-        'candidateManqabatSelections': _candidateManqabatSelections,
-        'candidateRecitationSelections': _candidateRecitationSelections,
-        'createdBy': uid,
-        'createdAt': DateTime.now(),
-      };
+    'date': _date,
+    'stage': _stage,
+    'isSenior': _isSenior,
+    'isActive': _isActive,
+    'isConducted': _isConducted,
+    'candidateIds': _candidateIds,
+    'judgeIds': _judgeIds,
+    'candidateManqabatSelections': _candidateManqabatSelections,
+    'candidateRecitationSelections': _candidateRecitationSelections,
+    'createdBy': uid,
+    'createdAt': DateTime.now(),
+  };
 
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -168,7 +198,13 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
         actions: [
           TextButton(
             onPressed: _save,
-            child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+            child: const Text(
+              'Save',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
@@ -206,7 +242,10 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
             field: GestureDetector(
               onTap: _pickDate,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   border: Border.all(color: Colors.grey.shade200),
@@ -214,11 +253,16 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.calendar_today_outlined,
-                        size: 18, color: AppTheme.primary),
+                    const Icon(
+                      Icons.calendar_today_outlined,
+                      size: 18,
+                      color: AppTheme.primary,
+                    ),
                     const SizedBox(width: 10),
-                    Text(DateFormat('EEE, dd MMM yyyy').format(_date),
-                        style: const TextStyle(fontWeight: FontWeight.w500)),
+                    Text(
+                      DateFormat('EEE, dd MMM yyyy').format(_date),
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
                     const Spacer(),
                     const Icon(Icons.chevron_right, color: AppTheme.textMuted),
                   ],
@@ -278,13 +322,19 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         decoration: BoxDecoration(
           color: selected ? color.withOpacity(0.12) : Colors.transparent,
-          border: Border.all(color: selected ? color : Colors.grey.shade300, width: 1.5),
+          border: Border.all(
+            color: selected ? color : Colors.grey.shade300,
+            width: 1.5,
+          ),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Text(label,
-            style: TextStyle(
-                color: selected ? color : AppTheme.textMuted,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w400)),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? color : AppTheme.textMuted,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
       ),
     );
   }
@@ -324,8 +374,14 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
     );
   }
 
-  Widget _switchRow(String title, String subtitle, IconData icon, Color color,
-      bool value, ValueChanged<bool> onChanged) {
+  Widget _switchRow(
+    String title,
+    String subtitle,
+    IconData icon,
+    Color color,
+    bool value,
+    ValueChanged<bool> onChanged,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -343,16 +399,24 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                Text(subtitle, style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.textMuted,
+                  ),
+                ),
               ],
             ),
           ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeThumbColor: color,
-          ),
+          Switch(value: value, onChanged: onChanged, activeThumbColor: color),
         ],
       ),
     );
@@ -360,7 +424,6 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
 
   Widget _buildCandidatesSection() {
     final candidatesAsync = ref.watch(candidatesStreamProvider);
-    final scoresAsync = ref.watch(scoresStreamProvider);
     final manqabatAsync = ref.watch(munqabatNamesProvider);
     return AppCard(
       child: Column(
@@ -370,51 +433,59 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
             title: 'CANDIDATES (${_candidateIds.length})',
             trailing: candidatesAsync.maybeWhen(
               data: (all) {
-                final eligible = _stage == 2
-                    ? _eligibleCandidatesForSemis(
-                        all,
-                        scoresAsync.value,
-                        _isSenior,
-                      )
-                    : all.where((c) => c.isSenior == _isSenior).toList();
+                final allowedStages = _allowedCandidateStagesForSession(_stage);
+                final eligible = all
+                    .where(
+                      (c) =>
+                          allowedStages.contains(c.stage) &&
+                          c.isSenior == _isSenior,
+                    )
+                    .toList();
                 return TextButton.icon(
                   icon: const Icon(Icons.add, size: 16),
-                  label: Text(_stage == 2 ? 'Add (Top 10)' : 'Add'),
-                  onPressed: (_stage == 2 && scoresAsync.value == null)
-                      ? null
-                      : () => _showPickerSheet(
-                            context,
-                            title: 'Select Candidates',
-                            items: eligible
-                                .map((c) => _PickerItem(
-                                    id: c.id, label: c.name, subtitle: c.exactAge))
-                                .toList(),
-                            selected: _candidateIds,
-                            onChanged: (ids) => setState(() {
-                              _candidateIds = ids;
-                              _syncCandidateSelections(ids);
-                            }),
+                  label: const Text('Add'),
+                  onPressed: () => _showPickerSheet(
+                    context,
+                    title: 'Select Candidates',
+                    items: eligible
+                        .map(
+                          (c) => _PickerItem(
+                            id: c.id,
+                            label: c.name,
+                            subtitle: c.exactAge,
                           ),
+                        )
+                        .toList(),
+                    selected: _candidateIds,
+                    onChanged: (ids) => setState(() {
+                      _candidateIds = ids;
+                      _syncCandidateSelections(ids);
+                    }),
+                  ),
                 );
               },
               orElse: () => null,
             ),
           ),
-          if (_stage == 2)
-            const Padding(
-              padding: EdgeInsets.only(top: 6),
+          if (_stage >= 2)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
               child: Text(
-                'Semi finals: top 10 from preliminaries for this category.',
-                style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                '${Session.stageLabel(_stage)}: only ${_allowedStageLabel(_stage)} level candidates for this category.',
+                style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
               ),
             ),
           const SizedBox(height: 12),
           candidatesAsync.maybeWhen(
             data: (all) {
-              final selected = all.where((c) => _candidateIds.contains(c.id)).toList();
+              final selected = all
+                  .where((c) => _candidateIds.contains(c.id))
+                  .toList();
               if (selected.isEmpty) {
-                return const Text('No candidates added yet',
-                    style: TextStyle(color: AppTheme.textMuted, fontSize: 13));
+                return const Text(
+                  'No candidates added yet',
+                  style: TextStyle(color: AppTheme.textMuted, fontSize: 13),
+                );
               }
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -426,7 +497,10 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
                     const SizedBox(height: 12),
                     const Text(
                       'Manqabat selections (min 3 each)',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     manqabatAsync.when(
@@ -436,7 +510,10 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
                       ),
                       error: (_, __) => const Text(
                         'Unable to load Manqabat list.',
-                        style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                        style: TextStyle(
+                          color: AppTheme.textMuted,
+                          fontSize: 12,
+                        ),
                       ),
                       data: (names) => Column(
                         children: selected
@@ -455,33 +532,21 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
     );
   }
 
-  List<Candidate> _eligibleCandidatesForSemis(
-    List<Candidate> candidates,
-    List<Score>? scores,
-    bool isSenior,
-  ) {
-    const limit = 10;
-    final stageCandidates = candidates
-        .where((c) => c.stage == 1 && c.isSenior == isSenior)
-        .toList();
-    final totals = <String, double>{};
-    if (scores != null) {
-      for (final score in scores) {
-        if (score.stage != 1) continue;
-        totals.update(
-          score.candidateId,
-          (value) => value + score.total,
-          ifAbsent: () => score.total,
-        );
-      }
+  Set<int> _allowedCandidateStagesForSession(int sessionStage) {
+    switch (sessionStage) {
+      case 2:
+        return {2};
+      case 3:
+        return {3};
+      default:
+        return {sessionStage};
     }
-    stageCandidates.sort((a, b) {
-      final totalA = totals[a.id] ?? 0;
-      final totalB = totals[b.id] ?? 0;
-      final cmp = totalB.compareTo(totalA);
-      return cmp != 0 ? cmp : a.name.compareTo(b.name);
-    });
-    return stageCandidates.take(limit).toList();
+  }
+
+  String _allowedStageLabel(int sessionStage) {
+    final stages = _allowedCandidateStagesForSession(sessionStage).toList()
+      ..sort();
+    return stages.map(Session.stageLabel).join(' or ');
   }
 
   void _syncCandidateSelections(List<String> ids) {
@@ -500,10 +565,20 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(c.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                Text(c.exactAge,
-                    style: const TextStyle(color: AppTheme.textMuted, fontSize: 11)),
+                Text(
+                  c.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                Text(
+                  c.exactAge,
+                  style: const TextStyle(
+                    color: AppTheme.textMuted,
+                    fontSize: 11,
+                  ),
+                ),
               ],
             ),
           ),
@@ -532,14 +607,19 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
               Expanded(
                 child: Text(
                   candidate.name,
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
                 ),
               ),
               Text(
                 '${selected.length} selected',
                 style: TextStyle(
                   fontSize: 12,
-                  color: selected.length < 3 ? AppTheme.error : AppTheme.textMuted,
+                  color: selected.length < 3
+                      ? AppTheme.error
+                      : AppTheme.textMuted,
                 ),
               ),
               const SizedBox(width: 8),
@@ -553,7 +633,8 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
                   selected: selected,
                   onChanged: (ids) => setState(() {
                     _candidateManqabatSelections[candidate.id] = ids;
-                    final recitation = _candidateRecitationSelections[candidate.id];
+                    final recitation =
+                        _candidateRecitationSelections[candidate.id];
                     if (recitation != null && !ids.contains(recitation)) {
                       _candidateRecitationSelections.remove(candidate.id);
                     }
@@ -586,7 +667,9 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
             title: 'JUDGES (${_judgeIds.length})',
             trailing: usersAsync.maybeWhen(
               data: (all) {
-                final judges = all.where((u) => u.role == UserRole.judge).toList();
+                final judges = all
+                    .where((u) => u.role == UserRole.judge)
+                    .toList();
                 return TextButton.icon(
                   icon: const Icon(Icons.add, size: 16),
                   label: const Text('Add'),
@@ -594,7 +677,13 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
                     context,
                     title: 'Select Judges',
                     items: judges
-                        .map((j) => _PickerItem(id: j.id, label: j.name, subtitle: j.email))
+                        .map(
+                          (j) => _PickerItem(
+                            id: j.id,
+                            label: j.name,
+                            subtitle: j.email,
+                          ),
+                        )
                         .toList(),
                     selected: _judgeIds,
                     onChanged: (ids) => setState(() => _judgeIds = ids),
@@ -607,10 +696,14 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
           const SizedBox(height: 12),
           usersAsync.maybeWhen(
             data: (all) {
-              final selected = all.where((u) => _judgeIds.contains(u.id)).toList();
+              final selected = all
+                  .where((u) => _judgeIds.contains(u.id))
+                  .toList();
               if (selected.isEmpty) {
-                return const Text('No judges assigned yet',
-                    style: TextStyle(color: AppTheme.textMuted, fontSize: 13));
+                return const Text(
+                  'No judges assigned yet',
+                  style: TextStyle(color: AppTheme.textMuted, fontSize: 13),
+                );
               }
               return Column(
                 children: selected.map((j) => _judgeChip(j)).toList(),
@@ -634,10 +727,20 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(judge.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                Text(judge.email,
-                    style: const TextStyle(color: AppTheme.textMuted, fontSize: 11)),
+                Text(
+                  judge.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                Text(
+                  judge.email,
+                  style: const TextStyle(
+                    color: AppTheme.textMuted,
+                    fontSize: 11,
+                  ),
+                ),
               ],
             ),
           ),
@@ -673,7 +776,10 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(title, style: Theme.of(context).textTheme.headlineSmall),
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
                     TextButton(
                       onPressed: () {
                         onChanged(local);
@@ -688,8 +794,11 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
               Expanded(
                 child: items.isEmpty
                     ? const Center(
-                        child: Text('No eligible items',
-                            style: TextStyle(color: AppTheme.textMuted)))
+                        child: Text(
+                          'No eligible items',
+                          style: TextStyle(color: AppTheme.textMuted),
+                        ),
+                      )
                     : ListView.builder(
                         controller: ctrl,
                         itemCount: items.length,
@@ -699,11 +808,17 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
                           return CheckboxListTile(
                             value: isSelected,
                             activeColor: AppTheme.primary,
-                            title: Text(item.label,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w500, fontSize: 14)),
-                            subtitle: Text(item.subtitle,
-                                style: const TextStyle(fontSize: 12)),
+                            title: Text(
+                              item.label,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 14,
+                              ),
+                            ),
+                            subtitle: Text(
+                              item.subtitle,
+                              style: const TextStyle(fontSize: 12),
+                            ),
                             onChanged: (v) => setModal(() {
                               v! ? local.add(item.id) : local.remove(item.id);
                             }),
@@ -721,5 +836,9 @@ class _SessionFormScreenState extends ConsumerState<SessionFormScreen> {
 
 class _PickerItem {
   final String id, label, subtitle;
-  const _PickerItem({required this.id, required this.label, required this.subtitle});
+  const _PickerItem({
+    required this.id,
+    required this.label,
+    required this.subtitle,
+  });
 }

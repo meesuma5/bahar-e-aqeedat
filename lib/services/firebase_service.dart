@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart';
 import 'app_logger.dart';
 import '../models/models.dart';
 
@@ -189,9 +190,8 @@ class FirebaseService {
       .snapshots()
       .map((s) => s.docs.map(Score.fromDoc).toList());
 
-    Stream<List<Score>> streamAllScores() => _scores
-      .snapshots()
-      .map((s) => s.docs.map(Score.fromDoc).toList());
+  Stream<List<Score>> streamAllScores() =>
+      _scores.snapshots().map((s) => s.docs.map(Score.fromDoc).toList());
 
   Future<List<Score>> getScoresForJudge(String judgeId) async {
     final snap = await _scores.where('judgeId', isEqualTo: judgeId).get();
@@ -222,6 +222,56 @@ class FirebaseService {
     final futures = ids.map((id) => _candidates.doc(id).get());
     final docs = await Future.wait(futures);
     return docs.where((d) => d.exists).map(Candidate.fromDoc).toList();
+  }
+
+  Future<void> syncCandidateStagesFromLatestSessions(
+    List<String> candidateIds,
+  ) async {
+    if (candidateIds.isEmpty) return;
+
+    final uniqueIds = candidateIds.toSet().toList();
+    final batch = _db.batch();
+    var hasUpdates = false;
+
+    for (final candidateId in uniqueIds) {
+      final candidateDoc = await _candidates.doc(candidateId).get();
+      if (!candidateDoc.exists) continue;
+
+      final candidate = Candidate.fromDoc(candidateDoc);
+      debugPrint(
+        '[StageSync] Query latest session for candidateId=$candidateId isSenior=${candidate.isSenior}',
+      );
+      QuerySnapshot sessionsSnap;
+      try {
+        sessionsSnap = await _sessions
+            .where('candidateIds', arrayContains: candidateId)
+            .where('isSenior', isEqualTo: candidate.isSenior)
+            .orderBy('date', descending: true)
+            .limit(1)
+            .get();
+      } catch (e, st) {
+        debugPrint('[StageSync] Query failed for candidateId=$candidateId');
+        debugPrint('[StageSync] Error type=${e.runtimeType} value=$e');
+        if (e is FirebaseException) {
+          debugPrint('[StageSync] Firebase code=${e.code}');
+          debugPrint('[StageSync] Firebase message=${e.message}');
+        }
+        debugPrint('[StageSync] Stack=$st');
+        rethrow;
+      }
+
+      if (sessionsSnap.docs.isEmpty) continue;
+
+      final latestSession = Session.fromDoc(sessionsSnap.docs.first);
+      if (candidate.stage == latestSession.stage) continue;
+
+      batch.update(candidateDoc.reference, {'stage': latestSession.stage});
+      hasUpdates = true;
+    }
+
+    if (hasUpdates) {
+      await batch.commit();
+    }
   }
 
   Future<List<AppUser>> getUsersByIds(List<String> ids) async {

@@ -10,7 +10,7 @@ import '../../../widgets/shared_widgets.dart';
 import 'candidate_form_screen.dart';
 import 'candidate_detail_sheet.dart';
 
-enum _SortBy { name, age, sessionDate, averageScore }
+enum _SortBy { name, age, sessionDate, totalScore }
 
 enum _GroupBy { none, category, session, stageCategory }
 
@@ -64,6 +64,15 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
                   );
                 },
                 data: (candidates) {
+                  final totalsByCandidate = _totalsByCandidate(
+                    scoresAsync.value,
+                  );
+                  final totalsByCandidateStage = _totalsByCandidateStage(
+                    scoresAsync.value,
+                  );
+                  final totalsBySessionCandidate = _totalsBySessionCandidate(
+                    scoresAsync.value,
+                  );
                   final filtered = _filter(candidates, scoresAsync.value);
                   if (filtered.isEmpty) {
                     return _buildScrollableEmptyState(
@@ -74,7 +83,13 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
                       ),
                     );
                   }
-                  return _buildList(filtered, sessionsAsync);
+                  return _buildList(
+                    filtered,
+                    sessionsAsync,
+                    totalsByCandidate,
+                    totalsByCandidateStage,
+                    totalsBySessionCandidate,
+                  );
                 },
               ),
             ),
@@ -139,8 +154,14 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
     }).toList();
 
     final totalsByCandidateStage = <String, Map<int, double>>{};
+    final totalsByCandidate = <String, double>{};
     if (allScores != null) {
       for (final score in allScores) {
+        totalsByCandidate.update(
+          score.candidateId,
+          (value) => value + score.total,
+          ifAbsent: () => score.total,
+        );
         final stageTotals = totalsByCandidateStage.putIfAbsent(
           score.candidateId,
           () => <int, double>{},
@@ -167,16 +188,67 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
       case _SortBy.sessionDate:
         list.sort((a, b) => a.stage.compareTo(b.stage));
         break;
-      case _SortBy.averageScore:
+      case _SortBy.totalScore:
         list.sort((a, b) {
-          final totalA = totalsByCandidateStage[a.id]?[a.stage] ?? 0;
-          final totalB = totalsByCandidateStage[b.id]?[b.stage] ?? 0;
+          final totalA = totalsByCandidate[a.id] ?? 0;
+          final totalB = totalsByCandidate[b.id] ?? 0;
           final cmp = totalB.compareTo(totalA);
           return cmp != 0 ? cmp : a.name.compareTo(b.name);
         });
         break;
     }
     return list;
+  }
+
+  Map<String, double> _totalsByCandidate(List<Score>? allScores) {
+    final totals = <String, double>{};
+    if (allScores == null) return totals;
+    for (final score in allScores) {
+      totals.update(
+        score.candidateId,
+        (value) => value + score.total,
+        ifAbsent: () => score.total,
+      );
+    }
+    return totals;
+  }
+
+  Map<String, Map<String, double>> _totalsBySessionCandidate(
+    List<Score>? allScores,
+  ) {
+    final totals = <String, Map<String, double>>{};
+    if (allScores == null) return totals;
+    for (final score in allScores) {
+      final perCandidate = totals.putIfAbsent(
+        score.sessionId,
+        () => <String, double>{},
+      );
+      perCandidate.update(
+        score.candidateId,
+        (value) => value + score.total,
+        ifAbsent: () => score.total,
+      );
+    }
+    return totals;
+  }
+
+  Map<String, Map<int, double>> _totalsByCandidateStage(
+    List<Score>? allScores,
+  ) {
+    final totals = <String, Map<int, double>>{};
+    if (allScores == null) return totals;
+    for (final score in allScores) {
+      final perStage = totals.putIfAbsent(
+        score.candidateId,
+        () => <int, double>{},
+      );
+      perStage.update(
+        score.stage,
+        (value) => value + score.total,
+        ifAbsent: () => score.total,
+      );
+    }
+    return totals;
   }
 
   List<Candidate> _topByStageCategory(
@@ -190,11 +262,9 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
     }
 
     final result = <Candidate>[];
-    final stageOrder = grouped.keys
-        .map((k) => int.parse(k.split('-').first))
-        .toSet()
-        .toList()
-      ..sort();
+    final stageOrder =
+        grouped.keys.map((k) => int.parse(k.split('-').first)).toSet().toList()
+          ..sort();
 
     for (final stage in stageOrder) {
       for (final isSenior in [true, false]) {
@@ -218,22 +288,26 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
   Widget _buildList(
     List<Candidate> candidates,
     AsyncValue<List<Session>> sessionsAsync,
+    Map<String, double> totalsByCandidate,
+    Map<String, Map<int, double>> totalsByCandidateStage,
+    Map<String, Map<String, double>> totalsBySessionCandidate,
   ) {
     if (_groupBy == _GroupBy.none) {
       return ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
         itemCount: candidates.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (_, i) => _CandidateCard(candidate: candidates[i]),
+        itemBuilder: (_, i) => _CandidateCard(
+          candidate: candidates[i],
+          totalScore: totalsByCandidate[candidates[i].id],
+        ),
       );
     }
 
     if (_groupBy == _GroupBy.session) {
       final sessions = sessionsAsync.value;
       if (sessions == null) {
-        return _buildScrollablePlaceholder(
-          const Text('Loading sessions...'),
-        );
+        return _buildScrollablePlaceholder(const Text('Loading sessions...'));
       }
 
       final sortedSessions = [...sessions]
@@ -260,25 +334,43 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
           return b.key!.date.compareTo(a.key!.date);
         });
 
+      for (final entry in groups) {
+        final sessionId = entry.key?.id;
+        final sessionTotals = sessionId == null
+            ? const <String, double>{}
+            : (totalsBySessionCandidate[sessionId] ?? const <String, double>{});
+        entry.value.sort((a, b) {
+          final scoreA = sessionTotals[a.id] ?? 0;
+          final scoreB = sessionTotals[b.id] ?? 0;
+          final cmp = scoreB.compareTo(scoreA);
+          return cmp != 0 ? cmp : a.name.compareTo(b.name);
+        });
+      }
+
       return ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
         children: [
           for (final entry in groups) ...[
             _sessionGroupHeader(entry.key, entry.value.length),
             const SizedBox(height: 8),
-            ...entry.value.map(
-              (c) => Padding(
+            ...entry.value.map((c) {
+              final sessionId = entry.key?.id;
+              final sessionScore = sessionId == null
+                  ? null
+                  : totalsBySessionCandidate[sessionId]?[c.id];
+              return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: _CandidateCard(candidate: c),
-              ),
-            ),
+                child: _CandidateCard(candidate: c, totalScore: sessionScore),
+              );
+            }),
           ],
         ],
       );
     }
 
     if (_groupBy == _GroupBy.stageCategory) {
-      final stages = candidates.map((c) => c.stage).toSet().toList()..sort();
+      final stages = candidates.map((c) => c.stage).toSet().toList()
+        ..sort((a, b) => b.compareTo(a));
       return ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
         children: [
@@ -289,12 +381,16 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
               candidates.where((c) => c.stage == stage && c.isSenior).toList(),
               'Senior',
               AppTheme.seniorBadge,
+              totalsByCandidateStage,
+              stage,
             ),
             const SizedBox(height: 8),
             _categoryBlock(
               candidates.where((c) => c.stage == stage && !c.isSenior).toList(),
               'Junior',
               AppTheme.juniorBadge,
+              totalsByCandidateStage,
+              stage,
             ),
             const SizedBox(height: 8),
           ],
@@ -314,7 +410,10 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
           ...seniors.map(
             (c) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _CandidateCard(candidate: c),
+              child: _CandidateCard(
+                candidate: c,
+                totalScore: totalsByCandidate[c.id],
+              ),
             ),
           ),
         ],
@@ -324,7 +423,10 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
           ...juniors.map(
             (c) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _CandidateCard(candidate: c),
+              child: _CandidateCard(
+                candidate: c,
+                totalScore: totalsByCandidate[c.id],
+              ),
             ),
           ),
         ],
@@ -398,6 +500,8 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
     List<Candidate> list,
     String label,
     Color color,
+    Map<String, Map<int, double>> totalsByCandidateStage,
+    int stage,
   ) {
     if (list.isEmpty) {
       return const SizedBox.shrink();
@@ -410,7 +514,10 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
         ...list.map(
           (c) => Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: _CandidateCard(candidate: c),
+            child: _CandidateCard(
+              candidate: c,
+              totalScore: totalsByCandidateStage[c.id]?[stage],
+            ),
           ),
         ),
       ],
@@ -464,84 +571,101 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
   void _showFilterSheet() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       builder: (_) => StatefulBuilder(
-        builder: (ctx, setModal) => Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Filters & Sorting',
-                style: Theme.of(context).textTheme.headlineSmall,
+        builder: (ctx, setModal) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: 20 + MediaQuery.of(ctx).viewInsets.bottom,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.85,
               ),
-              const SizedBox(height: 20),
-              const SectionHeader(title: 'SORT BY'),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _SortBy.values.map((s) {
-                  final labels = {
-                    _SortBy.name: 'Name',
-                    _SortBy.age: 'Age',
-                    _SortBy.sessionDate: 'Stage',
-                    _SortBy.averageScore: 'Score',
-                  };
-                  return FilterChip(
-                    label: Text(labels[s]!),
-                    selected: _sortBy == s,
-                    onSelected: (_) =>
-                        setModal(() => setState(() => _sortBy = s)),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-              const SectionHeader(title: 'GROUP BY'),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: _GroupBy.values.map((g) {
-                  final labels = {
-                    _GroupBy.none: 'None',
-                    _GroupBy.category: 'Category',
-                    _GroupBy.session: 'Session',
-                    _GroupBy.stageCategory: 'Stage + Category',
-                  };
-                  return FilterChip(
-                    label: Text(labels[g]!),
-                    selected: _groupBy == g,
-                    onSelected: (_) =>
-                        setModal(() => setState(() => _groupBy = g)),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-              const SectionHeader(title: 'TOP PERFORMERS'),
-              const SizedBox(height: 8),
-              SwitchListTile.adaptive(
-                value: _topOnly,
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Show top N per stage and category'),
-                onChanged: (value) => setModal(
-                  () => setState(() => _topOnly = value),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Filters & Sorting',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 20),
+                    const SectionHeader(title: 'SORT BY'),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _SortBy.values.map((s) {
+                        final labels = {
+                          _SortBy.name: 'Name',
+                          _SortBy.age: 'Age',
+                          _SortBy.sessionDate: 'Stage',
+                          _SortBy.totalScore: 'Total Score',
+                        };
+                        return FilterChip(
+                          label: Text(labels[s]!),
+                          selected: _sortBy == s,
+                          onSelected: (_) =>
+                              setModal(() => setState(() => _sortBy = s)),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    const SectionHeader(title: 'GROUP BY'),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: _GroupBy.values.map((g) {
+                        final labels = {
+                          _GroupBy.none: 'None',
+                          _GroupBy.category: 'Category',
+                          _GroupBy.session: 'Session',
+                          _GroupBy.stageCategory: 'Stage + Category',
+                        };
+                        return FilterChip(
+                          label: Text(labels[g]!),
+                          selected: _groupBy == g,
+                          onSelected: (_) =>
+                              setModal(() => setState(() => _groupBy = g)),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    const SectionHeader(title: 'TOP PERFORMERS'),
+                    const SizedBox(height: 8),
+                    SwitchListTile.adaptive(
+                      value: _topOnly,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Show top N per stage and category'),
+                      onChanged: (value) =>
+                          setModal(() => setState(() => _topOnly = value)),
+                    ),
+                    if (_topOnly) ...[
+                      const SizedBox(height: 8),
+                      ...[
+                        1,
+                        2,
+                        3,
+                        4,
+                      ].map((stage) => _topStageRow(stage, setModal)),
+                    ],
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Apply'),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              if (_topOnly) ...[
-                const SizedBox(height: 8),
-                ...[1, 2, 3, 4].map(
-                  (stage) => _topStageRow(stage, setModal),
-                ),
-              ],
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Apply'),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -556,26 +680,20 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              '$label top N',
-              style: const TextStyle(fontSize: 13),
-            ),
+            child: Text('$label top N', style: const TextStyle(fontSize: 13)),
           ),
           IconButton(
             onPressed: value > 1
                 ? () => setModal(
-                      () => setState(
-                        () => _topPerStage[stage] = value - 1,
-                      ),
-                    )
+                    () => setState(() => _topPerStage[stage] = value - 1),
+                  )
                 : null,
             icon: const Icon(Icons.remove_circle_outline),
           ),
           Text('$value', style: const TextStyle(fontWeight: FontWeight.w600)),
           IconButton(
-            onPressed: () => setModal(
-              () => setState(() => _topPerStage[stage] = value + 1),
-            ),
+            onPressed: () =>
+                setModal(() => setState(() => _topPerStage[stage] = value + 1)),
             icon: const Icon(Icons.add_circle_outline),
           ),
         ],
@@ -586,7 +704,8 @@ class _CandidatesScreenState extends ConsumerState<CandidatesScreen> {
 
 class _CandidateCard extends StatelessWidget {
   final Candidate candidate;
-  const _CandidateCard({required this.candidate});
+  final double? totalScore;
+  const _CandidateCard({required this.candidate, this.totalScore});
 
   @override
   Widget build(BuildContext context) {
@@ -637,6 +756,15 @@ class _CandidateCard extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              Text(
+                totalScore == null ? '--' : totalScore!.toStringAsFixed(0),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.primary,
+                ),
+              ),
+              const SizedBox(height: 2),
               Text(
                 candidate.exactAge,
                 style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
